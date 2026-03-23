@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>アフィリエイト経由売上 分析ダッシュボード</title>
+<style>
+/* ═══ 基盤 ═══ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --primary:#1E3A5F;--accent:#10B981;
+  --accent-light:#D1FAE5;--primary-light:#DBEAFE;
+  --g50:#F9FAFB;--g100:#F3F4F6;--g200:#E5E7EB;--g300:#D1D5DB;
+  --g400:#9CA3AF;--g500:#6B7280;--g700:#374151;--g900:#111827;
+  --white:#FFFFFF;
+  --shadow:0 1px 3px rgba(0,0,0,.06),0 0 0 1px rgba(0,0,0,.04);
+}
+body{font-family:'Noto Sans JP','Helvetica Neue',Arial,sans-serif;background:var(--g50);color:var(--g900);line-height:1.5}
+
+/* ═══ カード（白背景＋上部3pxカラーライン＋薄い影）═══ */
+.card{background:var(--white);border-radius:10px;box-shadow:var(--shadow);overflow:hidden;border-top:3px solid var(--primary)}
+.card--accent{border-top-color:var(--accent)}
+.card--gray{border-top-color:var(--g300)}
+.card--warn{border-top-color:#F59E0B}
+
+/* ═══ 折りたたみセクション ═══ */
+.section-header{display:flex;align-items:center;justify-content:space-between;padding:14px 22px;cursor:pointer;user-select:none}
+.section-header:hover{background:var(--g50)}
+.section-bar{width:4px;height:20px;border-radius:2px;background:var(--primary);flex-shrink:0}
+.section-bar--accent{background:var(--accent)}
+.section-bar--warn{background:#F59E0B}
+.section-title{font-size:15px;font-weight:700;color:var(--g900);margin-left:10px}
+.section-chevron{display:inline-block;transition:transform .25s;font-size:14px;color:var(--g400)}
+.section-chevron.collapsed{transform:rotate(-90deg)}
+.section-body{padding:0 22px 20px}
+.section-body.collapsed{display:none}
+
+/* ═══ KPI ═══ */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.kpi{padding:18px 22px}
+.kpi-label{font-size:11px;color:var(--g500);font-weight:600;letter-spacing:.4px;margin-bottom:6px}
+.kpi-value{font-size:26px;font-weight:800;color:var(--g900);letter-spacing:-.5px;line-height:1.1}
+.kpi-sub{font-size:11px;color:var(--g400);margin-top:6px}
+
+/* ═══ タブ — 下線切り替え式 ═══ */
+.tabs{display:flex;gap:0;border-bottom:2px solid var(--g200);margin-bottom:20px}
+.tab-btn{padding:10px 22px;border:none;cursor:pointer;font-size:13px;font-weight:500;color:var(--g500);background:transparent;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .2s;font-family:inherit}
+.tab-btn.active{font-weight:700;color:var(--primary);border-bottom-color:var(--primary)}
+
+/* ═══ テーブル ═══ */
+.data-table{width:100%;border-collapse:separate;border-spacing:0 5px;font-size:12px}
+.data-table th{color:var(--g500);font-size:10px;text-transform:uppercase;letter-spacing:.5px;padding:6px 10px;font-weight:600}
+.data-table td{padding:10px}
+.data-table tr.highlight{background:rgba(30,58,95,.03)}
+.data-table .total-row{background:var(--g50);font-weight:700}
+.text-right{text-align:right}
+.text-left{text-align:left}
+.font-bold{font-weight:700}
+.color-primary{color:var(--primary)}
+
+/* ═══ バッジ ═══ */
+.badge{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;color:#fff;font-size:11px;font-weight:700}
+.badge-gold{background:#F59E0B}
+.badge-silver{background:#94A3B8}
+.badge-bronze{background:#CD7F32}
+.badge-num{font-size:12px;color:var(--g400);font-weight:600;width:28px;text-align:center;display:inline-block}
+
+/* ═══ アップロード ═══ */
+.drop-zone{flex:1;min-width:240px;min-height:80px;border:2px dashed var(--g300);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer;transition:border-color .2s,background .2s;background:var(--g50);padding:16px}
+.drop-zone.over{border-color:var(--accent);background:var(--accent-light)}
+.drop-zone-icon{font-size:28px;filter:grayscale(.6)}
+.enc-btn{padding:5px 12px;border-radius:6px;border:none;cursor:pointer;font-size:11px;font-weight:400;background:var(--g100);color:var(--g500);transition:all .2s;font-family:inherit}
+.enc-btn.active{font-weight:700;background:var(--primary);color:var(--white)}
+.file-tag{padding:3px 10px;border-radius:6px;font-size:11px;font-weight:500;background:var(--accent-light);color:var(--accent);border:1px solid rgba(16,185,129,.13)}
+
+/* ═══ Tooltip (position:fixed, pointer-events:none, 1つ) ═══ */
+#tooltip{position:fixed;pointer-events:none;z-index:9999;background:rgba(17,24,39,.92);color:#fff;padding:8px 14px;border-radius:8px;font-size:12px;line-height:1.6;white-space:nowrap;opacity:0;transition:opacity .12s}
+
+/* ═══ プログレスバー ═══ */
+.progress-track{height:5px;background:var(--g100);border-radius:3px;overflow:hidden}
+.progress-fill{height:100%;border-radius:3px;transition:width .5s ease}
+
+/* ═══ インサイト ═══ */
+.insight{padding:14px 16px;border-radius:8px;background:var(--g50);border-left:3px solid var(--primary);margin-bottom:10px}
+.insight:last-child{margin-bottom:0}
+.insight-title{font-weight:700;font-size:13px;color:var(--g900);margin-bottom:3px}
+.insight-body{font-size:12px;color:var(--g700);line-height:1.7}
+
+/* ═══ CSV案内 ═══ */
+.csv-guide{margin-top:16px;padding:12px 16px;background:var(--g50);border-radius:8px;border:1px solid var(--g200)}
+.csv-guide-title{font-size:12px;font-weight:700;color:var(--g700);margin-bottom:8px}
+.csv-guide-row{display:flex;gap:8px;align-items:baseline;font-size:11px;margin-bottom:4px}
+.csv-guide-label{font-weight:600;color:var(--primary);flex-shrink:0}
+.csv-guide-arrow{color:var(--g400)}
+.csv-guide-path{color:var(--g500)}
+
+/* ═══ ユーティリティ ═══ */
+.container{max-width:1100px;margin:0 auto;padding:24px 16px 48px}
+.stack{display:flex;flex-direction:column}
+.gap-12{gap:12px}.gap-16{gap:16px}
+.hidden{display:none}
+.select{padding:5px 10px;border-radius:6px;border:1px solid var(--g200);font-size:11px;color:var(--g700);background:var(--white);cursor:pointer;min-width:320px;max-width:100%;font-family:inherit}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.info-box{background:var(--primary-light);border-radius:8px;padding:10px 16px;border:1px solid rgba(30,58,95,.13);font-size:12px;color:var(--g700);line-height:1.6}
+.info-box strong{color:var(--primary)}
+
+/* ═══ file input: opacity:0 方式 ═══ */
+.file-input-hidden{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+
+/* compact upload */
+.upload-compact{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 20px}
+.upload-compact-tags{display:flex;gap:6px;flex-wrap:wrap;flex:1}
+.upload-compact-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.add-btn{padding:4px 12px;border-radius:6px;border:1px dashed var(--g300);background:var(--white);color:var(--g500);font-size:11px;cursor:pointer;font-weight:600;font-family:inherit;transition:all .2s}
+.add-btn:hover{border-color:var(--accent);color:var(--accent)}
+.enc-btn-sm{padding:4px 10px;border-radius:5px;border:none;cursor:pointer;font-size:10px;font-weight:400;background:var(--g100);color:var(--g500);transition:all .2s;font-family:inherit}
+.enc-btn-sm.active{font-weight:700;background:var(--primary);color:var(--white)}
+.reset-btn{padding:6px 14px;border-radius:6px;border:1px solid var(--g200);background:var(--white);color:var(--g500);font-size:11px;cursor:pointer;font-weight:600;font-family:inherit;transition:all .2s}
+.reset-btn:hover{border-color:var(--primary);color:var(--primary)}
+
+.tier-card{padding:14px 16px;border-radius:8px;background:var(--g50);border-left:3px solid var(--primary)}
+.tier-value{font-size:24px;font-weight:800}
+.tier-label{font-size:11px;color:var(--g500);margin-top:2px}
+</style>
+</head>
+<body>
+
+<div id="tooltip"></div>
+
+<div class="container">
+  <!-- ═══ Header — 白カード＋左の青バー ═══ -->
+  <div class="card" style="margin-bottom:20px">
+    <div style="padding:16px 22px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:4px;height:28px;border-radius:2px;background:var(--primary);flex-shrink:0"></div>
+        <div>
+          <h1 style="font-size:18px;font-weight:800;letter-spacing:-.3px">アフィリエイト経由売上 分析ダッシュボード</h1>
+          <p style="font-size:12px;color:var(--g400);margin-top:2px">CSVから商品別・パートナー別の売上実績を可視化します。</p>
+        </div>
+      </div>
+      <button class="reset-btn hidden" id="resetBtn" onclick="resetAll()">リセット</button>
+    </div>
+  </div>
+
+  <!-- ═══ Upload Area ═══ -->
+  <div class="card card--accent" style="margin-bottom:20px" id="uploadCard">
+    <!-- 初期：大きなドロップゾーン -->
+    <div id="uploadFull" style="padding:20px 24px">
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <div class="drop-zone" id="dropZone" onclick="document.getElementById('csvInput').click()">
+          <span class="drop-zone-icon">📁</span>
+          <span style="font-size:13px;font-weight:600;color:var(--g700)">CSVファイルをドラッグ＆ドロップ</span>
+          <span style="font-size:11px;color:var(--g400)">またはクリックして選択（注文一覧 / パートナーレポート）</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <label style="font-size:11px;color:var(--g500);font-weight:600">文字コード</label>
+          <div style="display:flex;gap:4px" id="encBtnsFull"></div>
+        </div>
+      </div>
+      <div class="csv-guide">
+        <div class="csv-guide-title">CSVのダウンロード場所</div>
+        <div class="csv-guide-row"><span class="csv-guide-label">成果発生（注文一覧）</span><span class="csv-guide-arrow">→</span><span class="csv-guide-path">RMS > 店舗様向け情報 > 5 アフィリエイト > 成果発生レポート > 注文一覧ダウンロード</span></div>
+        <div class="csv-guide-row"><span class="csv-guide-label">パートナーレポート</span><span class="csv-guide-arrow">→</span><span class="csv-guide-path">RMS > 店舗様向け情報 > 5 アフィリエイト > パートナーレポート > ダウンロード</span></div>
+      </div>
+    </div>
+    <!-- 読み込み後：コンパクト -->
+    <div id="uploadCompact" class="upload-compact hidden">
+      <div class="upload-compact-tags" id="fileTags"></div>
+      <div class="upload-compact-actions">
+        <div style="display:flex;gap:3px" id="encBtnsCompact"></div>
+        <button class="add-btn" id="addBtn" onclick="document.getElementById('csvInput').click()">+ 追加</button>
+      </div>
+    </div>
+  </div>
+  <input type="file" accept=".csv,.tsv,.txt" multiple class="file-input-hidden" id="csvInput">
+
+  <!-- ═══ Empty State ═══ -->
+  <div class="card card--gray" id="emptyState" style="padding:40px 24px;text-align:center">
+    <div style="font-size:36px;margin-bottom:10px;filter:grayscale(.7)">📊</div>
+    <div style="font-size:14px;font-weight:600;color:var(--g700);margin-bottom:4px">上のエリアにCSVをドロップしてください</div>
+    <div style="font-size:12px;color:var(--g400);line-height:1.7">複数ファイルをまとめてアップロード可能。自動でマージ・重複除去します。</div>
+  </div>
+
+  <!-- ═══ Dashboard ═══ -->
+  <div id="dashboard" class="hidden">
+    <div class="tabs" id="tabBar"></div>
+    <div id="tabContent"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// 状態管理
+// ═══════════════════════════════════════════════════════════════════
+let state = {
+  orders: [],
+  partners: [],
+  fileNames: [],
+  encoding: 'Shift_JIS',
+  activeTab: 'overview',
+  selectedProduct: 'all',
+  analysis: null,
+};
+
+const CHART_COLORS = ['#1E3A5F','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#06B6D4','#F97316','#6366F1','#14B8A6','#A855F7'];
+const TABS = [{key:'overview',label:'概要'},{key:'partners',label:'パートナー'},{key:'products',label:'商品分析'}];
+
+// ═══════════════════════════════════════════════════════════════════
+// 1. RFC 4180 準拠 CSV パーサー
+// ═══════════════════════════════════════════════════════════════════
+function parseCSV(text) {
+  var rows = [], row = [], field = '', inQ = false, i = 0;
+  while (i < text.length) {
+    var ch = text[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (i+1 < text.length && text[i+1] === '"') { field += '"'; i += 2; continue; }
+        inQ = false; i++; continue;
+      }
+      field += ch; i++;
+    } else {
+      if (ch === '"') { inQ = true; i++; }
+      else if (ch === ',') { row.push(field.trim()); field = ''; i++; }
+      else if (ch === '\r') { row.push(field.trim()); rows.push(row); row=[]; field=''; i++; if(i<text.length && text[i]==='\n') i++; }
+      else if (ch === '\n') { row.push(field.trim()); rows.push(row); row=[]; field=''; i++; }
+      else { field += ch; i++; }
+    }
+  }
+  if (field || row.length) { row.push(field.trim()); rows.push(row); }
+  return rows;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 2. 列名自動検出 — 候補リスト方式（完全一致→部分一致）
+// ═══════════════════════════════════════════════════════════════════
+var COL_CANDIDATES = {
+  date:['成果発生日時','date','注文日時','注文日','発生日'],
+  itemId:['商品管理番号','item_mng_id','商品ID','商品番号'],
+  itemName:['商品名','item_name','商品タイトル'],
+  amount:['売上金額','amount','金額','売上額'],
+  rate:['料率','rate','報酬率'],
+  reward:['成果報酬','rewards','報酬'],
+  orderId:['受注番号','oid','注文番号'],
+  clicks:['クリック数','clicks'],
+  salesCount:['売上件数','sales'],
+};
+function detectColumn(headers, key) {
+  var cands = COL_CANDIDATES[key] || [];
+  for (var c of cands) { var idx = headers.indexOf(c); if (idx !== -1) return idx; }
+  for (var c of cands) { var idx = headers.findIndex(function(h){return h.includes(c)||c.includes(h)}); if (idx!==-1) return idx; }
+  return -1;
+}
+function detectColumns(headers) {
+  var map = {};
+  Object.keys(COL_CANDIDATES).forEach(function(k){ map[k] = detectColumn(headers, k); });
+  return map;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 3. 日付パース — 多形式対応 + 年バリデーション(1900–2099)
+// ═══════════════════════════════════════════════════════════════════
+function parseDate(s) {
+  if (!s) return null;
+  var str = String(s).trim(), m;
+  m = str.match(new RegExp('^(\\d{4})[/-](\\d{1,2})[/-](\\d{1,2})'));
+  if (m) { var y=parseInt(m[1]); if(y>=1900&&y<=2099) return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0'); }
+  m = str.match(new RegExp('^(\\d{4})(\\d{2})(\\d{2})$'));
+  if (m) { var y=parseInt(m[1]); if(y>=1900&&y<=2099) return m[1]+'-'+m[2]+'-'+m[3]; }
+  m = str.match(new RegExp('^(\\d{4})年(\\d{1,2})月(\\d{1,2})日'));
+  if (m) { var y=parseInt(m[1]); if(y>=1900&&y<=2099) return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0'); }
+  var n = parseFloat(str);
+  if (!isNaN(n) && n>30000 && n<60000) { var d=new Date((n-25569)*86400000); var y=d.getFullYear(); if(y>=1900&&y<=2099) return d.toISOString().slice(0,10); }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 4. 商品名プロモ文言除去 — new RegExp でSyntaxError回避
+//    否定先読みで「モモフルプラス」は保護
+// ═══════════════════════════════════════════════════════════════════
+var PROMO_PATTERNS = [
+  '【[^】]*】','《[^》]*》','＼[^／]*／','★[^★]*★',
+  'MAX\\d+[%％]?OFF[a-zA-Zァ-ヶー]*',
+  'MAX\\d+円[a-zA-Zァ-ヶー]*',
+  'スーパーセール[限定]*','マラソン[限定]*','クーポン[:：]?',
+  'モモフル(?!プラス)',
+  '\\bmomoful\\b',
+];
+function cleanProductName(name) {
+  if (!name) return name;
+  var cleaned = name;
+  PROMO_PATTERNS.forEach(function(pat) {
+    try { cleaned = cleaned.replace(new RegExp(pat, 'gi'), ''); } catch(e) {}
+  });
+  cleaned = cleaned.replace(new RegExp('^[\\s　!-/:-@\\[-`{-~！-／：-＠［-｀｛-～、。・「」『』【】〈〉《》〔〕]+'), '');
+  cleaned = cleaned.replace(new RegExp('[\\s　!-/:-@\\[-`{-~！-／：-＠［-｀｛-～、。・「」『』【】〈〉《》〔〕]+$'), '');
+  cleaned = cleaned.replace(new RegExp('\\s{2,}','g'), ' ').trim();
+  return cleaned || name;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 5. CSVタイプ自動判定 + データ抽出
+// ═══════════════════════════════════════════════════════════════════
+function identifyCSVType(rows) {
+  for (var i=0; i<Math.min(rows.length,15); i++) {
+    var j = rows[i].join(',');
+    if (j.includes('成果発生日時') || j.includes('item_mng_id')) return {type:'orders',headerRow:i};
+    if (j.includes('クリック数') || j.includes('clicks')) return {type:'partners',headerRow:i};
+  }
+  return {type:'unknown',headerRow:0};
+}
+function extractOrders(rows, hr) {
+  var headers = rows[hr], cols = detectColumns(headers);
+  var start = hr+1;
+  if (start<rows.length && rows[start].join(',').includes('date,')) start++;
+  var orders = [];
+  for (var i=start; i<rows.length; i++) {
+    var r = rows[i];
+    if (!r || r.length<5) continue;
+    var dv = cols.date>=0 ? r[cols.date] : r[0];
+    var d = parseDate(dv);
+    if (!d) continue;
+    var amt = parseInt(r[cols.amount>=0?cols.amount:6]) || 0;
+    if (amt===0) continue;
+    orders.push({
+      date:d, yearMonth:d.slice(0,7),
+      itemId: r[cols.itemId>=0?cols.itemId:1]||'',
+      itemName: cleanProductName(r[cols.itemName>=0?cols.itemName:2]||''),
+      amount: amt,
+      rate: parseFloat(r[cols.rate>=0?cols.rate:7])||0,
+      reward: parseInt(r[cols.reward>=0?cols.reward:8])||0,
+      orderId: r[cols.orderId>=0?cols.orderId:4] || d+'-'+i,
+    });
+  }
+  return orders;
+}
+function extractPartners(rows, hr) {
+  var headers = rows[hr], cols = detectColumns(headers);
+  var start = hr+1;
+  if (start<rows.length) { var sub=rows[start].join(','); if(sub.includes('clicks')||sub.includes('sales')) start++; }
+  var partners = [];
+  for (var i=start; i<rows.length; i++) {
+    var r = rows[i];
+    if (!r || r.length<4) continue;
+    var id = parseInt(r[0]);
+    if (isNaN(id)) continue;
+    partners.push({
+      id:id,
+      clicks: parseInt(r[cols.clicks>=0?cols.clicks:1])||0,
+      sales: parseInt(r[cols.salesCount>=0?cols.salesCount:2])||0,
+      amount: parseInt(r[cols.amount>=0?cols.amount:3])||0,
+      rewards: parseInt(r[cols.reward>=0?cols.reward:4])||0,
+    });
+  }
+  return partners;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 6. 重複除去（Set で O(1) チェック）
+// ═══════════════════════════════════════════════════════════════════
+function deduplicateOrders(orders) {
+  var seen = new Set();
+  return orders.filter(function(o) {
+    var key = o.orderId+'|'+o.itemId+'|'+o.amount;
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 7. 表示名を自動生成
+// ═══════════════════════════════════════════════════════════════════
+function buildProductLabels(orders) {
+  var map = {};
+  orders.forEach(function(o) { if (!map[o.itemId]) map[o.itemId] = o.itemName; });
+  return map;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ヘルパー
+// ═══════════════════════════════════════════════════════════════════
+function fmt(n) { return n!=null ? '¥'+n.toLocaleString() : '—'; }
+function fmtK(n) { return n>=1e6?'¥'+(n/1e6).toFixed(1)+'M':n>=1000?'¥'+(n/1000).toFixed(0)+'K':'¥'+n; }
+function el(tag, attrs, children) {
+  var e = document.createElement(tag);
+  if (attrs) Object.keys(attrs).forEach(function(k) {
+    if (k === 'className') e.className = attrs[k];
+    else if (k === 'innerHTML') e.innerHTML = attrs[k];
+    else if (k === 'onclick') e.onclick = attrs[k];
+    else if (k === 'onchange') e.onchange = attrs[k];
+    else if (k.startsWith('data')) e.setAttribute(k.replace(/([A-Z])/g,'-$1').toLowerCase(), attrs[k]);
+    else e.setAttribute(k, attrs[k]);
+  });
+  if (typeof children === 'string') e.textContent = children;
+  else if (Array.isArray(children)) children.forEach(function(c) { if(c) e.appendChild(c); });
+  else if (children instanceof Node) e.appendChild(children);
+  return e;
+}
+function h(html) { var d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild || d; }
+
+// ═══════════════════════════════════════════════════════════════════
+// 分析ロジック
+// ═══════════════════════════════════════════════════════════════════
+function runAnalysis() {
+  var orders = state.orders, partners = state.partners;
+  if (!orders.length && !partners.length) { state.analysis = null; return; }
+
+  var dateSet = new Set(), ymSet = new Set();
+  orders.forEach(function(o) { dateSet.add(o.date); ymSet.add(o.yearMonth); });
+  var allDates = Array.from(dateSet).sort();
+  var yearMonths = Array.from(ymSet).sort();
+
+  var dailyMap = {};
+  orders.forEach(function(o) {
+    if (!dailyMap[o.date]) dailyMap[o.date] = {date:o.date, amount:0, count:0};
+    dailyMap[o.date].amount += o.amount;
+    dailyMap[o.date].count += 1;
+  });
+  var daily = allDates.map(function(d) { return dailyMap[d]||{date:d,amount:0,count:0}; });
+
+  var prodMap = {};
+  orders.forEach(function(o) {
+    if (!prodMap[o.itemId]) prodMap[o.itemId] = {id:o.itemId, name:'', amount:0, count:0, reward:0};
+    prodMap[o.itemId].amount += o.amount;
+    prodMap[o.itemId].count += 1;
+    prodMap[o.itemId].reward += o.reward;
+  });
+  var labels = buildProductLabels(orders);
+  Object.values(prodMap).forEach(function(p) { p.name = labels[p.id]||p.id; });
+  var products = Object.values(prodMap).sort(function(a,b){return b.amount-a.amount});
+
+  var pdMap = {};
+  orders.forEach(function(o) {
+    var key = o.itemId+'|'+o.date;
+    if (!pdMap[key]) pdMap[key] = {itemId:o.itemId, date:o.date, amount:0, count:0};
+    pdMap[key].amount += o.amount;
+    pdMap[key].count += 1;
+  });
+  var prodDaily = Object.values(pdMap);
+
+  var monthlyMap = {};
+  orders.forEach(function(o) {
+    if (!monthlyMap[o.yearMonth]) monthlyMap[o.yearMonth] = {ym:o.yearMonth, amount:0, count:0};
+    monthlyMap[o.yearMonth].amount += o.amount;
+    monthlyMap[o.yearMonth].count += 1;
+  });
+  var monthly = yearMonths.map(function(ym){return monthlyMap[ym]||{ym:ym,amount:0,count:0}});
+
+  var activePartners = partners.filter(function(p){return p.sales>0}).sort(function(a,b){return b.amount-a.amount});
+  var totalAmount = orders.reduce(function(s,o){return s+o.amount},0);
+  var totalOrders = orders.length;
+  var totalRewards = orders.reduce(function(s,o){return s+o.reward},0);
+
+  state.analysis = {
+    allDates:allDates, yearMonths:yearMonths, daily:daily, products:products,
+    prodDaily:prodDaily, monthly:monthly, activePartners:activePartners,
+    totalAmount:totalAmount, totalOrders:totalOrders, totalRewards:totalRewards,
+    labels:labels, pCount:partners.length, aCount:activePartners.length,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SVG チャート描画
+// ═══════════════════════════════════════════════════════════════════
+function drawBarChart(container, data, opts) {
+  var w = container.clientWidth || 700, h = opts.height || 260;
+  var m = {t:16,r:12,b:36,l:56}, iw = w-m.l-m.r, ih = h-m.t-m.b;
+  var maxV = Math.max.apply(null, data.map(function(d){return d.amount})) || 1;
+  var gap = data.length>0 ? iw/data.length : iw;
+  var barW = Math.max(4, gap*0.6);
+  var yT = 5;
+  var svgNs = 'http://www.w3.org/2000/svg';
+
+  var svg = document.createElementNS(svgNs,'svg');
+  svg.setAttribute('width', w);
+  svg.setAttribute('height', h);
+  svg.style.overflow = 'visible';
+
+  var defs = document.createElementNS(svgNs,'defs');
+  defs.innerHTML = '<linearGradient id="bG_'+opts.id+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1E3A5F"/><stop offset="100%" stop-color="#3B6B9A"/></linearGradient>';
+  svg.appendChild(defs);
+
+  var g = document.createElementNS(svgNs,'g');
+  g.setAttribute('transform','translate('+m.l+','+m.t+')');
+
+  for (var yi=0; yi<=yT; yi++) {
+    var yPos = (ih/yT)*yi, val = maxV*(1-yi/yT);
+    var line = document.createElementNS(svgNs,'line');
+    line.setAttribute('x1',0); line.setAttribute('y1',yPos); line.setAttribute('x2',iw); line.setAttribute('y2',yPos);
+    line.setAttribute('stroke','#E5E7EB'); line.setAttribute('stroke-dasharray','3,3');
+    g.appendChild(line);
+    var txt = document.createElementNS(svgNs,'text');
+    txt.setAttribute('x',-8); txt.setAttribute('y',yPos+4); txt.setAttribute('text-anchor','end');
+    txt.setAttribute('fill','#6B7280'); txt.setAttribute('font-size','10');
+    txt.textContent = fmtK(Math.round(val));
+    g.appendChild(txt);
+  }
+
+  data.forEach(function(d, i) {
+    var bh = (d.amount/maxV)*ih;
+    var x = i*gap + (gap-barW)/2;
+    var rect = document.createElementNS(svgNs,'rect');
+    rect.setAttribute('x',x); rect.setAttribute('y',ih-bh); rect.setAttribute('width',barW); rect.setAttribute('height',bh);
+    rect.setAttribute('rx',3); rect.setAttribute('fill','url(#bG_'+opts.id+')');
+    g.appendChild(rect);
+
+    // transparent hit area
+    var hit = document.createElementNS(svgNs,'rect');
+    hit.setAttribute('x',i*gap); hit.setAttribute('y',0); hit.setAttribute('width',gap); hit.setAttribute('height',ih);
+    hit.setAttribute('fill','transparent'); hit.style.cursor='pointer';
+    hit.addEventListener('mousemove', (function(dd){return function(e){showTooltip(e,'<strong>'+dd.date+'</strong><br/>売上: '+fmt(dd.amount)+'<br/>件数: '+dd.count+'件')}})(d));
+    hit.addEventListener('mouseleave', hideTooltip);
+    g.appendChild(hit);
+
+    if (data.length<=31 || i%Math.ceil(data.length/20)===0) {
+      var lbl = document.createElementNS(svgNs,'text');
+      lbl.setAttribute('x',x+barW/2); lbl.setAttribute('y',ih+18); lbl.setAttribute('text-anchor','middle');
+      lbl.setAttribute('fill','#6B7280'); lbl.setAttribute('font-size','10');
+      lbl.textContent = d.date.slice(8);
+      g.appendChild(lbl);
+    }
+  });
+
+  svg.appendChild(g);
+  container.innerHTML = '';
+  container.appendChild(svg);
+}
+
+function drawLineChart(container, data, allDates, opts) {
+  var w = container.clientWidth || 700, ht = opts.height || 260;
+  var lineC = opts.color || '#1E3A5F';
+  var m = {t:16,r:12,b:36,l:56}, iw = w-m.l-m.r, ih = ht-m.t-m.b;
+  var maxV = Math.max.apply(null, data.map(function(d){return d.amount}))*1.1 || 1;
+  var gap = allDates.length>1 ? iw/(allDates.length-1) : iw;
+  var yT = 5;
+  var svgNs = 'http://www.w3.org/2000/svg';
+
+  var dateMap = {};
+  data.forEach(function(d){dateMap[d.date]=d.amount});
+
+  var points = allDates.map(function(d,i){
+    var amt = dateMap[d]||0;
+    return {date:d, amount:amt, x: allDates.length>1 ? i*gap : iw/2, y: ih-(amt/maxV)*ih};
+  });
+
+  var svg = document.createElementNS(svgNs,'svg');
+  svg.setAttribute('width',w); svg.setAttribute('height',ht);
+  svg.style.overflow='visible';
+
+  var defs = document.createElementNS(svgNs,'defs');
+  defs.innerHTML = '<linearGradient id="aG_'+opts.id+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="'+lineC+'" stop-opacity="0.2"/><stop offset="100%" stop-color="'+lineC+'" stop-opacity="0.01"/></linearGradient>';
+  svg.appendChild(defs);
+
+  var g = document.createElementNS(svgNs,'g');
+  g.setAttribute('transform','translate('+m.l+','+m.t+')');
+
+  for (var yi=0;yi<=yT;yi++) {
+    var yPos=(ih/yT)*yi, val=maxV*(1-yi/yT);
+    var line = document.createElementNS(svgNs,'line');
+    line.setAttribute('x1',0);line.setAttribute('y1',yPos);line.setAttribute('x2',iw);line.setAttribute('y2',yPos);
+    line.setAttribute('stroke','#E5E7EB');line.setAttribute('stroke-dasharray','3,3');
+    g.appendChild(line);
+    var txt=document.createElementNS(svgNs,'text');
+    txt.setAttribute('x',-8);txt.setAttribute('y',yPos+4);txt.setAttribute('text-anchor','end');
+    txt.setAttribute('fill','#6B7280');txt.setAttribute('font-size','10');
+    txt.textContent=fmtK(Math.round(val));
+    g.appendChild(txt);
+  }
+
+  var pathD = points.map(function(p,i){return (i===0?'M':'L')+p.x+','+p.y}).join(' ');
+  var areaD = pathD+' L'+points[points.length-1].x+','+ih+' L'+points[0].x+','+ih+' Z';
+
+  var area = document.createElementNS(svgNs,'path');
+  area.setAttribute('d',areaD); area.setAttribute('fill','url(#aG_'+opts.id+')');
+  g.appendChild(area);
+
+  var pathEl = document.createElementNS(svgNs,'path');
+  pathEl.setAttribute('d',pathD); pathEl.setAttribute('fill','none');
+  pathEl.setAttribute('stroke',lineC); pathEl.setAttribute('stroke-width','2.5');
+  pathEl.setAttribute('stroke-linejoin','round');
+  g.appendChild(pathEl);
+
+  points.forEach(function(p) {
+    if (p.amount>0) {
+      var c = document.createElementNS(svgNs,'circle');
+      c.setAttribute('cx',p.x);c.setAttribute('cy',p.y);c.setAttribute('r','3.5');
+      c.setAttribute('fill',lineC);c.setAttribute('stroke','#fff');c.setAttribute('stroke-width','1.5');
+      g.appendChild(c);
+    }
+  });
+
+  points.forEach(function(p) {
+    var hit = document.createElementNS(svgNs,'rect');
+    hit.setAttribute('x',p.x-gap/2);hit.setAttribute('y',0);hit.setAttribute('width',gap);hit.setAttribute('height',ih);
+    hit.setAttribute('fill','transparent');hit.style.cursor='pointer';
+    hit.addEventListener('mousemove',(function(pp){return function(e){showTooltip(e,'<strong>'+pp.date+'</strong><br/>売上: '+fmt(pp.amount))}})(p));
+    hit.addEventListener('mouseleave',hideTooltip);
+    g.appendChild(hit);
+  });
+
+  points.forEach(function(p,i) {
+    if (allDates.length<=31 || i%Math.ceil(allDates.length/20)===0) {
+      var lbl=document.createElementNS(svgNs,'text');
+      lbl.setAttribute('x',p.x);lbl.setAttribute('y',ih+18);lbl.setAttribute('text-anchor','middle');
+      lbl.setAttribute('fill','#6B7280');lbl.setAttribute('font-size','10');
+      lbl.textContent=p.date.slice(8);
+      g.appendChild(lbl);
+    }
+  });
+
+  svg.appendChild(g);
+  container.innerHTML='';
+  container.appendChild(svg);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Tooltip
+// ═══════════════════════════════════════════════════════════════════
+var tooltipEl = document.getElementById('tooltip');
+function showTooltip(e, html) {
+  tooltipEl.innerHTML = html;
+  tooltipEl.style.opacity = '1';
+  var x = e.clientX+14, y = e.clientY-10;
+  if (e.clientX > window.innerWidth-220) x = e.clientX-200;
+  if (e.clientY > window.innerHeight-100) y = e.clientY-70;
+  tooltipEl.style.left = x+'px';
+  tooltipEl.style.top = y+'px';
+}
+function hideTooltip() { tooltipEl.style.opacity = '0'; }
+
+// ═══════════════════════════════════════════════════════════════════
+// UI描画
+// ═══════════════════════════════════════════════════════════════════
+function render() {
+  var A = state.analysis;
+  var hasFiles = state.fileNames.length > 0;
+
+  // Upload area toggle
+  document.getElementById('uploadFull').classList.toggle('hidden', hasFiles);
+  document.getElementById('uploadCompact').classList.toggle('hidden', !hasFiles);
+  document.getElementById('emptyState').classList.toggle('hidden', !!A);
+  document.getElementById('dashboard').classList.toggle('hidden', !A);
+  document.getElementById('resetBtn').classList.toggle('hidden', !A);
+
+  // File tags
+  if (hasFiles) {
+    var tagsEl = document.getElementById('fileTags');
+    tagsEl.innerHTML = '';
+    state.fileNames.forEach(function(f) {
+      var span = document.createElement('span');
+      span.className = 'file-tag';
+      span.textContent = '✓ ' + f;
+      tagsEl.appendChild(span);
+    });
+  }
+
+  // Encoding buttons (both locations)
+  renderEncButtons('encBtnsFull', 'enc-btn');
+  renderEncButtons('encBtnsCompact', 'enc-btn-sm');
+
+  if (!A) return;
+
+  // Tabs
+  var tabBar = document.getElementById('tabBar');
+  tabBar.innerHTML = '';
+  TABS.forEach(function(t) {
+    var btn = document.createElement('button');
+    btn.className = 'tab-btn' + (state.activeTab===t.key?' active':'');
+    btn.textContent = t.label;
+    btn.onclick = function() { state.activeTab = t.key; render(); };
+    tabBar.appendChild(btn);
+  });
+
+  // Tab content
+  var tc = document.getElementById('tabContent');
+  tc.innerHTML = '';
+  if (state.activeTab === 'overview') renderOverview(tc, A);
+  else if (state.activeTab === 'partners') renderPartners(tc, A);
+  else if (state.activeTab === 'products') renderProducts(tc, A);
+}
+
+function renderEncButtons(containerId, btnClass) {
+  var el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = '';
+  ['Shift_JIS','UTF-8'].forEach(function(enc) {
+    var btn = document.createElement('button');
+    btn.className = btnClass + (state.encoding===enc?' active':'');
+    btn.textContent = enc;
+    btn.onclick = function() { state.encoding = enc; render(); };
+    el.appendChild(btn);
+  });
+}
+
+// ═══ KPI helper ═══
+function kpiCard(label, value, sub, colorClass) {
+  var card = document.createElement('div');
+  card.className = 'card kpi' + (colorClass?' card--accent':'');
+  card.innerHTML = '<div class="kpi-label">'+label+'</div><div class="kpi-value">'+value+'</div>'+(sub?'<div class="kpi-sub">'+sub+'</div>':'');
+  return card;
+}
+
+// ═══ Section helper ═══
+function makeSection(title, barClass, defaultOpen) {
+  var wrap = document.createElement('div');
+  wrap.className = 'card' + (barClass?' card--'+barClass:'');
+  var header = document.createElement('div');
+  header.className = 'section-header';
+  var leftDiv = document.createElement('div');
+  leftDiv.style.cssText = 'display:flex;align-items:center';
+  var bar = document.createElement('div');
+  bar.className = 'section-bar' + (barClass?' section-bar--'+barClass:'');
+  var ttl = document.createElement('span');
+  ttl.className = 'section-title';
+  ttl.textContent = title;
+  leftDiv.appendChild(bar);
+  leftDiv.appendChild(ttl);
+  var rightDiv = document.createElement('div');
+  rightDiv.style.cssText = 'display:flex;align-items:center;gap:10px';
+  var chevron = document.createElement('span');
+  chevron.className = 'section-chevron' + (defaultOpen===false?' collapsed':'');
+  chevron.textContent = '▼';
+  rightDiv.appendChild(chevron);
+  header.appendChild(leftDiv);
+  header.appendChild(rightDiv);
+  var body = document.createElement('div');
+  body.className = 'section-body' + (defaultOpen===false?' collapsed':'');
+  header.onclick = function(e) {
+    if (e.target.tagName==='SELECT' || e.target.tagName==='OPTION') return;
+    body.classList.toggle('collapsed');
+    chevron.classList.toggle('collapsed');
+  };
+  wrap.appendChild(header);
+  wrap.appendChild(body);
+  return {wrap:wrap, body:body, rightDiv:rightDiv};
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// OVERVIEW タブ
+// ═══════════════════════════════════════════════════════════════════
+function renderOverview(tc, A) {
+  var frag = document.createDocumentFragment();
+
+  // KPIs
+  var kgrid = document.createElement('div');
+  kgrid.className = 'kpi-grid';
+  kgrid.style.marginBottom = '16px';
+  kgrid.appendChild(kpiCard('アフィリエイト経由売上', fmt(A.totalAmount), A.allDates[0]+'〜'+A.allDates[A.allDates.length-1]));
+  kgrid.appendChild(kpiCard('注文件数', A.totalOrders+'件', '日平均 '+(A.totalOrders/A.allDates.length).toFixed(1)+'件', true));
+  kgrid.appendChild(kpiCard('平均注文単価', fmt(Math.round(A.totalAmount/A.totalOrders)), '1注文あたり'));
+  kgrid.appendChild(kpiCard('アクティブ記載人数', A.aCount+'人', '全'+A.pCount+'人中', true));
+  frag.appendChild(kgrid);
+
+  // YoY/MoM notice or monthly
+  if (A.yearMonths.length < 2) {
+    var info = document.createElement('div');
+    info.className = 'info-box';
+    info.style.marginBottom = '16px';
+    info.innerHTML = '<strong>YoY / MoM：</strong>現在のデータは'+A.yearMonths[0]+'のみです。過去月のCSVを追加アップロードすると前月比・前年比を自動算出します。';
+    frag.appendChild(info);
+  } else {
+    var ms = makeSection('月次推移 (MoM / YoY)', null, true);
+    var mg = document.createElement('div');
+    mg.className = 'kpi-grid';
+    A.monthly.forEach(function(mo, idx) {
+      var prev = idx>0 ? A.monthly[idx-1] : null;
+      var mom = prev && prev.amount>0 ? ((mo.amount-prev.amount)/prev.amount*100).toFixed(1) : null;
+      var yoyM = A.monthly.find(function(x) {
+        var md = new Date(mo.ym+'-01'), xd = new Date(x.ym+'-01');
+        return xd.getFullYear()===md.getFullYear()-1 && xd.getMonth()===md.getMonth();
+      });
+      var yoy = yoyM && yoyM.amount>0 ? ((mo.amount-yoyM.amount)/yoyM.amount*100).toFixed(1) : null;
+      var sub = [mom&&('MoM: '+(mom>=0?'+':'')+mom+'%'), yoy&&('YoY: '+(yoy>=0?'+':'')+yoy+'%')].filter(Boolean).join(' / ') || mo.count+'件';
+      mg.appendChild(kpiCard(mo.ym, fmt(mo.amount), sub, idx%2===1));
+    });
+    ms.body.appendChild(mg);
+    ms.wrap.style.marginBottom = '16px';
+    frag.appendChild(ms.wrap);
+  }
+
+  // Daily chart
+  var cs = makeSection('日次売上推移', null, true);
+  var chartDiv = document.createElement('div');
+  chartDiv.style.width = '100%';
+  cs.body.appendChild(chartDiv);
+  cs.wrap.style.marginBottom = '16px';
+  frag.appendChild(cs.wrap);
+
+  // Product composition
+  var ps = makeSection('商品別売上構成', 'accent', true);
+  A.products.forEach(function(p, i) {
+    var pv = (p.amount/A.totalAmount)*100;
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:flex-start;gap:10px;margin-bottom:10px';
+    row.innerHTML =
+      '<span style="font-size:11px;color:#9CA3AF;width:20px;text-align:right;font-weight:700;flex-shrink:0;padding-top:2px">'+(i+1)+'</span>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="display:flex;justify-content:space-between;margin-bottom:3px;gap:8px">' +
+          '<span style="font-size:12px;font-weight:600;color:#111827;line-height:1.4">'+p.name+'</span>' +
+          '<span style="font-size:12px;font-weight:700;color:#1E3A5F;flex-shrink:0">'+fmt(p.amount)+'</span>' +
+        '</div>' +
+        '<div class="progress-track"><div class="progress-fill" style="width:'+pv+'%;background:'+CHART_COLORS[i%CHART_COLORS.length]+'"></div></div>' +
+        '<div style="display:flex;gap:10px;margin-top:2px;font-size:10px;color:#9CA3AF">' +
+          '<span>'+p.count+'件</span><span>構成比 '+pv.toFixed(1)+'%</span><span>報酬 '+fmt(p.reward)+'</span>' +
+        '</div>' +
+      '</div>';
+    ps.body.appendChild(row);
+  });
+  frag.appendChild(ps.wrap);
+
+  tc.appendChild(frag);
+
+  // draw chart after DOM attach
+  requestAnimationFrame(function() { drawBarChart(chartDiv, A.daily, {height:260, id:'daily'}); });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PARTNERS タブ
+// ═══════════════════════════════════════════════════════════════════
+function renderPartners(tc, A) {
+  var frag = document.createDocumentFragment();
+
+  var kg = document.createElement('div');
+  kg.className = 'kpi-grid';
+  kg.style.marginBottom = '16px';
+  var top10sum = A.activePartners.slice(0,10).reduce(function(s,p){return s+p.amount},0);
+  kg.appendChild(kpiCard('アクティブ記載人数', A.aCount+'人', '総登録 '+A.pCount+'人'));
+  kg.appendChild(kpiCard('Top10 売上合計', fmt(top10sum), '全体の'+(top10sum/A.totalAmount*100).toFixed(1)+'%', true));
+  kg.appendChild(kpiCard('パートナー平均売上', fmt(Math.round(A.totalAmount/Math.max(A.aCount,1))), 'アクティブのみ'));
+  frag.appendChild(kg);
+
+  // Top10 table
+  var ts = makeSection('Top 10 インフルエンサー売上ランキング', null, true);
+  var tableWrap = document.createElement('div');
+  tableWrap.style.overflowX = 'auto';
+  var thtml = '<table class="data-table"><thead><tr>' +
+    '<th class="text-left">順位</th><th class="text-left">ID</th><th class="text-right">売上件数</th>' +
+    '<th class="text-right">売上金額</th><th class="text-right">成果報酬</th><th class="text-right">クリック数</th><th class="text-right">CVR</th></tr></thead><tbody>';
+  A.activePartners.slice(0,10).forEach(function(p,i) {
+    var badge = i<3 ? '<span class="badge badge-'+['gold','silver','bronze'][i]+'">'+(i+1)+'</span>' : '<span class="badge-num">#'+(i+1)+'</span>';
+    var cvr = p.clicks>0 ? ((p.sales/p.clicks)*100).toFixed(1)+'%' : '—';
+    thtml += '<tr'+(i<3?' class="highlight"':'')+'>' +
+      '<td style="border-radius:8px 0 0 8px">'+badge+'</td>' +
+      '<td style="font-weight:600">#'+p.id+'</td>' +
+      '<td class="text-right">'+p.sales+'件</td>' +
+      '<td class="text-right font-bold color-primary">'+fmt(p.amount)+'</td>' +
+      '<td class="text-right">'+fmt(p.rewards)+'</td>' +
+      '<td class="text-right">'+p.clicks+'</td>' +
+      '<td class="text-right" style="border-radius:0 8px 8px 0">'+cvr+'</td></tr>';
+  });
+  thtml += '</tbody></table>';
+  tableWrap.innerHTML = thtml;
+  ts.body.appendChild(tableWrap);
+  ts.wrap.style.marginBottom = '16px';
+  frag.appendChild(ts.wrap);
+
+  // Distribution
+  var ds = makeSection('パートナー売上分布', 'accent', false);
+  var dg = document.createElement('div');
+  dg.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px';
+  [{label:'10万円以上', fn:function(p){return p.amount>=100000}, color:'var(--primary)'},
+   {label:'1万〜10万円', fn:function(p){return p.amount>=10000&&p.amount<100000}, color:'var(--accent)'},
+   {label:'1万円未満', fn:function(p){return p.amount<10000}, color:'#F59E0B'}
+  ].forEach(function(t) {
+    var count = A.activePartners.filter(t.fn).length;
+    var d = document.createElement('div');
+    d.className = 'tier-card';
+    d.style.borderLeftColor = t.color;
+    d.innerHTML = '<div class="tier-value" style="color:'+t.color+'">'+count+'人</div><div class="tier-label">'+t.label+'</div>';
+    dg.appendChild(d);
+  });
+  ds.body.appendChild(dg);
+  frag.appendChild(ds.wrap);
+
+  tc.appendChild(frag);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PRODUCTS タブ
+// ═══════════════════════════════════════════════════════════════════
+function renderProducts(tc, A) {
+  var frag = document.createDocumentFragment();
+
+  // Line chart section
+  var ls = makeSection('商品別 売上日次推移', null, true);
+
+  // select
+  var select = document.createElement('select');
+  select.className = 'select';
+  select.innerHTML = '<option value="all">全商品</option>';
+  A.products.forEach(function(p) {
+    select.innerHTML += '<option value="'+p.id+'">'+p.name+'</option>';
+  });
+  select.value = state.selectedProduct;
+  select.onchange = function() {
+    state.selectedProduct = this.value;
+    drawProductLine();
+  };
+  // insert select before chevron in the header's right div
+  ls.rightDiv.insertBefore(select, ls.rightDiv.firstChild);
+
+  var lineDiv = document.createElement('div');
+  lineDiv.id = 'lineChartContainer';
+  lineDiv.style.width = '100%';
+  ls.body.appendChild(lineDiv);
+  ls.wrap.style.marginBottom = '16px';
+  frag.appendChild(ls.wrap);
+
+  // Product table
+  var ps = makeSection('商品別 アフィリエイト経由売上', 'accent', true);
+  var tw = document.createElement('div');
+  tw.style.overflowX = 'auto';
+  var thtml = '<table class="data-table"><thead><tr>' +
+    '<th class="text-left">商品</th><th class="text-right">売上金額</th><th class="text-right">件数</th>' +
+    '<th class="text-right">平均単価</th><th class="text-right">構成比</th><th class="text-right">成果報酬</th></tr></thead><tbody>';
+  A.products.forEach(function(p, idx) {
+    thtml += '<tr><td style="border-radius:8px 0 0 8px"><div style="display:flex;align-items:center;gap:8px">' +
+      '<span class="dot" style="background:'+CHART_COLORS[idx%CHART_COLORS.length]+'"></span>' +
+      '<span style="font-weight:600;font-size:12px">'+p.name+'</span></div></td>' +
+      '<td class="text-right font-bold color-primary">'+fmt(p.amount)+'</td>' +
+      '<td class="text-right">'+p.count+'件</td>' +
+      '<td class="text-right">'+fmt(Math.round(p.amount/p.count))+'</td>' +
+      '<td class="text-right">'+(p.amount/A.totalAmount*100).toFixed(1)+'%</td>' +
+      '<td class="text-right" style="border-radius:0 8px 8px 0">'+fmt(p.reward)+'</td></tr>';
+  });
+  thtml += '<tr class="total-row"><td style="border-radius:8px 0 0 8px">合計</td>' +
+    '<td class="text-right color-primary">'+fmt(A.totalAmount)+'</td>' +
+    '<td class="text-right">'+A.totalOrders+'件</td>' +
+    '<td class="text-right">'+fmt(Math.round(A.totalAmount/A.totalOrders))+'</td>' +
+    '<td class="text-right">100%</td>' +
+    '<td class="text-right" style="border-radius:0 8px 8px 0">'+fmt(A.totalRewards)+'</td></tr>';
+  thtml += '</tbody></table>';
+  tw.innerHTML = thtml;
+  ps.body.appendChild(tw);
+  ps.wrap.style.marginBottom = '16px';
+  frag.appendChild(ps.wrap);
+
+  // Insights
+  var ins = makeSection('販促示唆・インサイト', 'warn', false);
+  var insights = [];
+  if (A.products.length>0) {
+    insights.push({title:A.products[0].name+' が売上1位', body:'構成比'+(A.products[0].amount/A.totalAmount*100).toFixed(1)+'%。アフィリエイターが最も紹介しやすい商品です。外部メディア（SNS広告・インフルエンサーPR）でもこの商品を軸に展開すると効率的です。'});
+    insights.push({title:'イベント日にスパイク発生', body:'楽天スーパーSALE・マラソン連動期間にアフィリエイト売上が急増する傾向があります。イベント前にアフィリエイター向けの情報配信や特別報酬率の設定が有効です。'});
+  }
+  if (A.activePartners.length>=3) {
+    var top3pct = (A.activePartners.slice(0,3).reduce(function(s,p){return s+p.amount},0)/A.totalAmount*100).toFixed(0);
+    insights.push({title:'Top3パートナーで売上の'+top3pct+'%', body:'Partner #'+A.activePartners.slice(0,3).map(function(p){return p.id}).join(', #')+' の寄与が大きいです。個別に報酬交渉やコンテンツ提供を行い、関係強化する価値があります。'});
+  }
+  if (A.products.length>=2) insights.push({title:'セット商品のクロスセル機会', body:'高単価のセット商品が構成比上位にある場合、単品購入者へのセット訴求をアフィリエイターに推奨するとAOV向上が見込めます。'});
+  insights.push({title:'外部露出の拡大案', body:'Instagram Reels / TikTok での商品比較コンテンツ、美容系YouTuberとのタイアップ、ターゲット層向けメディアへの記事広告が有望です。'});
+
+  insights.forEach(function(item) {
+    var d = document.createElement('div');
+    d.className = 'insight';
+    d.innerHTML = '<div class="insight-title">'+item.title+'</div><div class="insight-body">'+item.body+'</div>';
+    ins.body.appendChild(d);
+  });
+  frag.appendChild(ins.wrap);
+
+  tc.appendChild(frag);
+
+  // draw line chart
+  requestAnimationFrame(drawProductLine);
+}
+
+function drawProductLine() {
+  var A = state.analysis;
+  if (!A) return;
+  var container = document.getElementById('lineChartContainer');
+  if (!container) return;
+
+  var sp = state.selectedProduct;
+  var data;
+  if (sp === 'all') {
+    data = A.daily.map(function(d){return {date:d.date, amount:d.amount}});
+  } else {
+    var map = {};
+    A.prodDaily.filter(function(d){return d.itemId===sp}).forEach(function(d){map[d.date]=(map[d.date]||0)+d.amount});
+    data = A.allDates.map(function(d){return {date:d, amount:map[d]||0}});
+  }
+  var colorIdx = sp!=='all' ? A.products.findIndex(function(p){return p.id===sp}) : 0;
+  drawLineChart(container, data, A.allDates, {
+    height:260,
+    id:'prodLine',
+    color: CHART_COLORS[Math.max(0,colorIdx) % CHART_COLORS.length]
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ファイル処理イベント
+// ═══════════════════════════════════════════════════════════════════
+var pendingFiles = 0;
+function processFile(file) {
+  pendingFiles++;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var rows = parseCSV(e.target.result);
+    var info = identifyCSVType(rows);
+    if (info.type === 'orders') {
+      var newOrders = extractOrders(rows, info.headerRow);
+      state.orders = deduplicateOrders(state.orders.concat(newOrders));
+    } else if (info.type === 'partners') {
+      var newP = extractPartners(rows, info.headerRow);
+      var seen = new Set(state.partners.map(function(p){return p.id}));
+      state.partners = state.partners.concat(newP.filter(function(p){return !seen.has(p.id)}));
+    }
+    state.fileNames.push(file.name + ' (' + info.type + ')');
+    pendingFiles--;
+    if (pendingFiles === 0) {
+      runAnalysis();
+      render();
+    }
+  };
+  reader.readAsText(file, state.encoding);
+}
+
+function handleFiles(files) {
+  Array.from(files).forEach(processFile);
+  document.getElementById('csvInput').value = '';
+}
+
+function resetAll() {
+  state = {orders:[], partners:[], fileNames:[], encoding:state.encoding, activeTab:'overview', selectedProduct:'all', analysis:null};
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// イベントリスナー
+// ═══════════════════════════════════════════════════════════════════
+document.getElementById('csvInput').addEventListener('change', function(e) {
+  handleFiles(e.target.files);
+});
+
+// Drop zone events (bind to both drop zone and add button)
+var dropZone = document.getElementById('dropZone');
+var addBtn = document.getElementById('addBtn');
+var uploadCard = document.getElementById('uploadCard');
+
+['dragover','dragenter'].forEach(function(evt) {
+  uploadCard.addEventListener(evt, function(e) { e.preventDefault(); dropZone.classList.add('over'); });
+});
+['dragleave','dragend'].forEach(function(evt) {
+  uploadCard.addEventListener(evt, function() { dropZone.classList.remove('over'); });
+});
+uploadCard.addEventListener('drop', function(e) {
+  e.preventDefault();
+  dropZone.classList.remove('over');
+  handleFiles(e.dataTransfer.files);
+});
+
+// Window resize → redraw charts
+var resizeTimer;
+window.addEventListener('resize', function() {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(function() {
+    if (state.analysis) render();
+  }, 200);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// 初期描画
+// ═══════════════════════════════════════════════════════════════════
+render();
+</script>
+</body>
+</html>
