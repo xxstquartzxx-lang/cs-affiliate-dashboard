@@ -24,16 +24,12 @@ body{font-family:'Noto Sans JP','Helvetica Neue',Arial,sans-serif;background:var
 .card--warn{border-top-color:#F59E0B}
 
 /* ═══ 折りたたみセクション ═══ */
-.section-header{display:flex;align-items:center;justify-content:space-between;padding:14px 22px;cursor:pointer;user-select:none}
-.section-header:hover{background:var(--g50)}
+.section-header{display:flex;align-items:center;justify-content:space-between;padding:14px 22px}
 .section-bar{width:4px;height:20px;border-radius:2px;background:var(--primary);flex-shrink:0}
 .section-bar--accent{background:var(--accent)}
 .section-bar--warn{background:#F59E0B}
 .section-title{font-size:15px;font-weight:700;color:var(--g900);margin-left:10px}
-.section-chevron{display:inline-block;transition:transform .25s;font-size:14px;color:var(--g400)}
-.section-chevron.collapsed{transform:rotate(-90deg)}
 .section-body{padding:0 22px 20px}
-.section-body.collapsed{display:none}
 
 /* ═══ KPI ═══ */
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
@@ -121,6 +117,9 @@ body{font-family:'Noto Sans JP','Helvetica Neue',Arial,sans-serif;background:var
 .tier-card{padding:14px 16px;border-radius:8px;background:var(--g50);border-left:3px solid var(--primary)}
 .tier-value{font-size:24px;font-weight:800}
 .tier-label{font-size:11px;color:var(--g500);margin-top:2px}
+
+/* ═══ セクションタグ（青い斜めバッジ）═══ */
+.section-tag{display:inline-block;padding:5px 18px 5px 14px;font-size:13px;font-weight:700;color:var(--white);background:var(--primary);clip-path:polygon(0 0,100% 0,calc(100% - 10px) 100%,0 100%);margin-bottom:14px;letter-spacing:.3px}
 </style>
 </head>
 <body>
@@ -197,6 +196,8 @@ let state = {
   encoding: 'Shift_JIS',
   activeTab: 'overview',
   selectedProduct: 'all',
+  selectedMonth: 'all',
+  dailyProduct: 'all',
   analysis: null,
 };
 
@@ -378,6 +379,53 @@ function buildProductLabels(orders) {
 // ═══════════════════════════════════════════════════════════════════
 function fmt(n) { return n!=null ? '¥'+n.toLocaleString() : '—'; }
 function fmtK(n) { return n>=1e6?'¥'+(n/1e6).toFixed(1)+'M':n>=1000?'¥'+(n/1000).toFixed(0)+'K':'¥'+n; }
+function truncName(s, len) { len = len || 40; return s.length > len ? s.slice(0, len) + '…' : s; }
+function fmtDiff(n) { return n>=0 ? '+'+fmt(n) : '-'+fmt(Math.abs(n)); }
+
+// 期間を「2026-02-01～2026-02-28 (28日間)」形式で返す
+function fmtPeriod(allDates, ym) {
+  var dates;
+  if (!ym || ym === 'all') {
+    dates = allDates;
+  } else {
+    dates = allDates.filter(function(d) { return d.slice(0, 7) === ym; });
+  }
+  if (!dates.length) return ym || '—';
+  var first = dates[0];
+  var last = dates[dates.length - 1];
+  var days = dates.length;
+  if (first === last) return first + '（1日間）';
+  return first + '〜' + last + '（' + days + '日間）';
+}
+
+// 商品名ツールチップ用: 表示されていない続き部分を表示
+function bindNameTooltip(el, fullName, truncLen) {
+  truncLen = truncLen || 40;
+  if (fullName.length <= truncLen) return; // 切り詰めなしならツールチップ不要
+  var remaining = '…' + fullName.slice(truncLen);
+  el.style.cursor = 'default';
+  el.addEventListener('mousemove', function(e) { showTooltip(e, remaining); });
+  el.addEventListener('mouseleave', hideTooltip);
+}
+
+// 月でフィルタした商品集計を返す
+function calcProductsByMonth(orders, ym) {
+  var filtered = ym === 'all' ? orders : orders.filter(function(o){return o.yearMonth===ym});
+  var prodMap = {};
+  filtered.forEach(function(o) {
+    if (!prodMap[o.itemId]) prodMap[o.itemId] = {id:o.itemId, name:'', amount:0, count:0, reward:0};
+    prodMap[o.itemId].amount += o.amount;
+    prodMap[o.itemId].count += 1;
+    prodMap[o.itemId].reward += o.reward;
+  });
+  var labels = buildProductLabels(filtered.length ? filtered : orders);
+  Object.values(prodMap).forEach(function(p){p.name = labels[p.id]||p.id});
+  var products = Object.values(prodMap).sort(function(a,b){return b.amount-a.amount});
+  var totalAmount = filtered.reduce(function(s,o){return s+o.amount},0);
+  var totalOrders = filtered.length;
+  var totalRewards = filtered.reduce(function(s,o){return s+o.reward},0);
+  return {products:products, totalAmount:totalAmount, totalOrders:totalOrders, totalRewards:totalRewards};
+}
 function el(tag, attrs, children) {
   var e = document.createElement(tag);
   if (attrs) Object.keys(attrs).forEach(function(k) {
@@ -698,7 +746,7 @@ function kpiCard(label, value, sub, colorClass) {
 }
 
 // ═══ Section helper ═══
-function makeSection(title, barClass, defaultOpen) {
+function makeSection(title, barClass) {
   var wrap = document.createElement('div');
   wrap.className = 'card' + (barClass?' card--'+barClass:'');
   var header = document.createElement('div');
@@ -714,19 +762,10 @@ function makeSection(title, barClass, defaultOpen) {
   leftDiv.appendChild(ttl);
   var rightDiv = document.createElement('div');
   rightDiv.style.cssText = 'display:flex;align-items:center;gap:10px';
-  var chevron = document.createElement('span');
-  chevron.className = 'section-chevron' + (defaultOpen===false?' collapsed':'');
-  chevron.textContent = '▼';
-  rightDiv.appendChild(chevron);
   header.appendChild(leftDiv);
   header.appendChild(rightDiv);
   var body = document.createElement('div');
-  body.className = 'section-body' + (defaultOpen===false?' collapsed':'');
-  header.onclick = function(e) {
-    if (e.target.tagName==='SELECT' || e.target.tagName==='OPTION') return;
-    body.classList.toggle('collapsed');
-    chevron.classList.toggle('collapsed');
-  };
+  body.className = 'section-body';
   wrap.appendChild(header);
   wrap.appendChild(body);
   return {wrap:wrap, body:body, rightDiv:rightDiv};
@@ -737,18 +776,24 @@ function makeSection(title, barClass, defaultOpen) {
 // ═══════════════════════════════════════════════════════════════════
 function renderOverview(tc, A) {
   var frag = document.createDocumentFragment();
+  var period = fmtPeriod(A.allDates, 'all');
 
-  // KPIs
+  // ─── 青いセクションタグ + KPIs ───
+  var tag = document.createElement('div');
+  tag.className = 'section-tag';
+  tag.textContent = 'KPI サマリー（' + period + '）';
+  frag.appendChild(tag);
+
   var kgrid = document.createElement('div');
   kgrid.className = 'kpi-grid';
   kgrid.style.marginBottom = '16px';
-  kgrid.appendChild(kpiCard('アフィリエイト経由売上', fmt(A.totalAmount), A.allDates[0]+'〜'+A.allDates[A.allDates.length-1]));
+  kgrid.appendChild(kpiCard('アフィリエイト経由売上', fmt(A.totalAmount), period));
   kgrid.appendChild(kpiCard('注文件数', A.totalOrders+'件', '日平均 '+(A.totalOrders/A.allDates.length).toFixed(1)+'件', true));
   kgrid.appendChild(kpiCard('平均注文単価', fmt(Math.round(A.totalAmount/A.totalOrders)), '1注文あたり'));
-  kgrid.appendChild(kpiCard('アクティブ記載人数', A.aCount+'人', '全'+A.pCount+'人中', true));
+  kgrid.appendChild(kpiCard('アクティブ記載人数', A.aCount+'人', '売上1件以上 / 全'+A.pCount+'人中', true));
   frag.appendChild(kgrid);
 
-  // YoY/MoM notice or monthly
+  // ─── YoY/MoM ───
   if (A.yearMonths.length < 2) {
     var info = document.createElement('div');
     info.className = 'info-box';
@@ -756,59 +801,223 @@ function renderOverview(tc, A) {
     info.innerHTML = '<strong>YoY / MoM：</strong>現在のデータは'+A.yearMonths[0]+'のみです。過去月のCSVを追加アップロードすると前月比・前年比を自動算出します。';
     frag.appendChild(info);
   } else {
-    var ms = makeSection('月次推移 (MoM / YoY)', null, true);
+    var ms = makeSection('月次推移 (MoM / YoY)', null);
     var mg = document.createElement('div');
     mg.className = 'kpi-grid';
     A.monthly.forEach(function(mo, idx) {
-      var prev = idx>0 ? A.monthly[idx-1] : null;
-      var mom = prev && prev.amount>0 ? ((mo.amount-prev.amount)/prev.amount*100).toFixed(1) : null;
-      var yoyM = A.monthly.find(function(x) {
-        var md = new Date(mo.ym+'-01'), xd = new Date(x.ym+'-01');
-        return xd.getFullYear()===md.getFullYear()-1 && xd.getMonth()===md.getMonth();
-      });
-      var yoy = yoyM && yoyM.amount>0 ? ((mo.amount-yoyM.amount)/yoyM.amount*100).toFixed(1) : null;
-      var sub = [mom&&('MoM: '+(mom>=0?'+':'')+mom+'%'), yoy&&('YoY: '+(yoy>=0?'+':'')+yoy+'%')].filter(Boolean).join(' / ') || mo.count+'件';
-      mg.appendChild(kpiCard(mo.ym, fmt(mo.amount), sub, idx%2===1));
+      // 前月をカレンダー上で計算
+      var moDate = new Date(mo.ym + '-01');
+      var prevYm = new Date(moDate.getFullYear(), moDate.getMonth() - 1, 1);
+      var prevYmStr = prevYm.getFullYear() + '-' + String(prevYm.getMonth()+1).padStart(2,'0');
+      var prev = A.monthly.find(function(x) { return x.ym === prevYmStr; });
+
+      var momPct = prev && prev.amount > 0 ? ((mo.amount - prev.amount) / prev.amount * 100).toFixed(1) : null;
+      var momDiff = prev ? mo.amount - prev.amount : null;
+
+      // 前年同月
+      var yoyYmStr = (moDate.getFullYear() - 1) + '-' + String(moDate.getMonth()+1).padStart(2,'0');
+      var yoyM = A.monthly.find(function(x) { return x.ym === yoyYmStr; });
+      var yoyPct = yoyM && yoyM.amount > 0 ? ((mo.amount - yoyM.amount) / yoyM.amount * 100).toFixed(1) : null;
+      var yoyDiff = yoyM ? mo.amount - yoyM.amount : null;
+
+      // サブテキスト構築: 常に件数を含める
+      var lines = [mo.count + '件'];
+      if (prev) {
+        lines.push('MoM: ' + (momPct >= 0 ? '+' : '') + momPct + '%（' + fmtDiff(momDiff) + '）');
+      } else {
+        // カレンダー上の前月データが存在しない
+        lines.push('MoM: ' + prevYmStr + ' のデータなし');
+      }
+      if (yoyM) {
+        lines.push('YoY: ' + (yoyPct >= 0 ? '+' : '') + yoyPct + '%（' + fmtDiff(yoyDiff) + '）');
+      } else {
+        lines.push('YoY: ' + yoyYmStr + ' のデータなし');
+      }
+      var sub = lines.join(' / ');
+      var monthLabel = fmtPeriod(A.allDates, mo.ym);
+      mg.appendChild(kpiCard(monthLabel, fmt(mo.amount), sub, idx % 2 === 1));
     });
     ms.body.appendChild(mg);
     ms.wrap.style.marginBottom = '16px';
     frag.appendChild(ms.wrap);
   }
 
-  // Daily chart
-  var cs = makeSection('日次売上推移', null, true);
+  // ─── Daily chart（商品で絞り込み可能）───
+  var cs = makeSection('日次売上推移', null);
+
+  // 商品選択プルダウン
+  var dailySelect = document.createElement('select');
+  dailySelect.className = 'select';
+  dailySelect.id = 'dailyProductSelect';
+  dailySelect.style.minWidth = '280px';
+  dailySelect.innerHTML = '<option value="all">全商品</option>';
+  A.products.forEach(function(p) {
+    var opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = truncName(p.name);
+    if (p.name.length > 40) opt.title = '…' + p.name.slice(40);
+    dailySelect.appendChild(opt);
+  });
+  dailySelect.value = state.dailyProduct;
+  dailySelect.onchange = function() {
+    state.dailyProduct = this.value;
+    redrawDailyChart();
+  };
+  cs.rightDiv.insertBefore(dailySelect, cs.rightDiv.firstChild);
+
   var chartDiv = document.createElement('div');
+  chartDiv.id = 'dailyChartContainer';
   chartDiv.style.width = '100%';
   cs.body.appendChild(chartDiv);
   cs.wrap.style.marginBottom = '16px';
   frag.appendChild(cs.wrap);
 
-  // Product composition
-  var ps = makeSection('商品別売上構成', 'accent', true);
-  A.products.forEach(function(p, i) {
-    var pv = (p.amount/A.totalAmount)*100;
-    var row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:flex-start;gap:10px;margin-bottom:10px';
-    row.innerHTML =
-      '<span style="font-size:11px;color:#9CA3AF;width:20px;text-align:right;font-weight:700;flex-shrink:0;padding-top:2px">'+(i+1)+'</span>' +
-      '<div style="flex:1;min-width:0">' +
-        '<div style="display:flex;justify-content:space-between;margin-bottom:3px;gap:8px">' +
-          '<span style="font-size:12px;font-weight:600;color:#111827;line-height:1.4">'+p.name+'</span>' +
-          '<span style="font-size:12px;font-weight:700;color:#1E3A5F;flex-shrink:0">'+fmt(p.amount)+'</span>' +
-        '</div>' +
-        '<div class="progress-track"><div class="progress-fill" style="width:'+pv+'%;background:'+CHART_COLORS[i%CHART_COLORS.length]+'"></div></div>' +
-        '<div style="display:flex;gap:10px;margin-top:2px;font-size:10px;color:#9CA3AF">' +
-          '<span>'+p.count+'件</span><span>構成比 '+pv.toFixed(1)+'%</span><span>報酬 '+fmt(p.reward)+'</span>' +
-        '</div>' +
-      '</div>';
-    ps.body.appendChild(row);
-  });
+  // ─── 商品別売上構成（月選択可能）───
+  var ps = makeSection('商品別売上構成', 'accent');
+
+  // 月フィルター（複数月ある場合のみ）
+  if (A.yearMonths.length >= 2) {
+    var monthSelect = document.createElement('select');
+    monthSelect.className = 'select';
+    monthSelect.style.minWidth = '280px';
+    monthSelect.style.maxWidth = '360px';
+    monthSelect.innerHTML = '<option value="all">全期間：' + fmtPeriod(A.allDates, 'all') + '</option>';
+    A.yearMonths.forEach(function(ym) {
+      monthSelect.innerHTML += '<option value="'+ym+'">' + fmtPeriod(A.allDates, ym) + '</option>';
+    });
+    monthSelect.value = state.selectedMonth;
+    monthSelect.onchange = function() {
+      state.selectedMonth = this.value;
+      renderProductComposition();
+    };
+    ps.rightDiv.insertBefore(monthSelect, ps.rightDiv.firstChild);
+  }
+
+  // 商品リストコンテナ
+  var prodContainer = document.createElement('div');
+  prodContainer.id = 'prodCompositionContainer';
+  ps.body.appendChild(prodContainer);
   frag.appendChild(ps.wrap);
 
   tc.appendChild(frag);
 
   // draw chart after DOM attach
-  requestAnimationFrame(function() { drawBarChart(chartDiv, A.daily, {height:260, id:'daily'}); });
+  requestAnimationFrame(redrawDailyChart);
+
+  // 商品構成を描画
+  renderProductComposition();
+}
+
+// ─── 日次チャート再描画（商品フィルタ対応）───
+function redrawDailyChart() {
+  var A = state.analysis;
+  if (!A) return;
+  var container = document.getElementById('dailyChartContainer');
+  if (!container) return;
+
+  var sp = state.dailyProduct;
+  var data;
+  if (sp === 'all') {
+    data = A.daily;
+  } else {
+    var map = {};
+    A.prodDaily.filter(function(d){return d.itemId===sp}).forEach(function(d){
+      map[d.date] = (map[d.date]||0) + d.amount;
+    });
+    var countMap = {};
+    A.prodDaily.filter(function(d){return d.itemId===sp}).forEach(function(d){
+      countMap[d.date] = (countMap[d.date]||0) + d.count;
+    });
+    data = A.allDates.map(function(d){ return {date:d, amount:map[d]||0, count:countMap[d]||0}; });
+  }
+  drawBarChart(container, data, {height:260, id:'daily'});
+
+  // セレクトボックスを同期
+  var sel = document.getElementById('dailyProductSelect');
+  if (sel) sel.value = sp;
+}
+
+// ─── 商品別売上構成の描画（月フィルタ対応）───
+function renderProductComposition() {
+  var A = state.analysis;
+  if (!A) return;
+  var container = document.getElementById('prodCompositionContainer');
+  if (!container) return;
+  container.innerHTML = '';
+
+  var ym = state.selectedMonth;
+  var data = calcProductsByMonth(state.orders, ym);
+  var periodLabel = fmtPeriod(A.allDates, ym);
+
+  // 合計サマリー行
+  var summary = document.createElement('div');
+  summary.style.cssText = 'display:flex;gap:20px;align-items:baseline;margin-bottom:14px;padding:10px 14px;background:var(--g50);border-radius:8px;font-size:12px;flex-wrap:wrap';
+  summary.innerHTML =
+    '<span style="color:var(--g500)">合計</span>' +
+    '<span style="font-weight:800;font-size:18px;color:var(--primary)">'+fmt(data.totalAmount)+'</span>' +
+    '<span style="color:var(--g400)">'+data.totalOrders+'件</span>' +
+    '<span style="color:var(--g400)">'+data.products.length+'商品</span>' +
+    '<span style="color:var(--g400)">期間: '+periodLabel+'</span>';
+  container.appendChild(summary);
+
+  data.products.forEach(function(p, i) {
+    var pv = data.totalAmount > 0 ? (p.amount / data.totalAmount) * 100 : 0;
+    var shortName = truncName(p.name);
+    var isSelected = state.dailyProduct === p.id;
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:flex-start;gap:10px;margin-bottom:4px;padding:6px 8px;border-radius:8px;cursor:pointer;transition:background .15s'
+      + (isSelected ? ';background:var(--primary-light);border-left:3px solid var(--primary)' : ';border-left:3px solid transparent');
+    row.addEventListener('mouseenter', function() { if (!isSelected) row.style.background='var(--g100)'; });
+    row.addEventListener('mouseleave', function() { if (!isSelected) row.style.background=''; });
+    row.addEventListener('click', (function(pid) {
+      return function() {
+        // 同じ商品をクリックしたら全商品に戻す
+        state.dailyProduct = state.dailyProduct === pid ? 'all' : pid;
+        redrawDailyChart();
+        renderProductComposition();
+        // 日次チャートまでスクロール
+        var chartEl = document.getElementById('dailyChartContainer');
+        if (chartEl) chartEl.scrollIntoView({behavior:'smooth', block:'center'});
+      };
+    })(p.id));
+
+    var numSpan = document.createElement('span');
+    numSpan.style.cssText = 'font-size:11px;color:#9CA3AF;width:20px;text-align:right;font-weight:700;flex-shrink:0;padding-top:2px';
+    numSpan.textContent = (i+1);
+
+    var contentDiv = document.createElement('div');
+    contentDiv.style.cssText = 'flex:1;min-width:0';
+
+    var topRow = document.createElement('div');
+    topRow.style.cssText = 'display:flex;justify-content:space-between;margin-bottom:3px;gap:8px';
+
+    var nameSpan = document.createElement('span');
+    nameSpan.style.cssText = 'font-size:12px;font-weight:' + (isSelected ? '600' : '400') + ';color:' + (isSelected ? 'var(--primary)' : 'var(--g700)') + ';line-height:1.4';
+    nameSpan.textContent = shortName;
+    bindNameTooltip(nameSpan, p.name);
+
+    var amtSpan = document.createElement('span');
+    amtSpan.style.cssText = 'font-size:12px;font-weight:700;color:var(--primary);flex-shrink:0';
+    amtSpan.textContent = fmt(p.amount);
+
+    topRow.appendChild(nameSpan);
+    topRow.appendChild(amtSpan);
+    contentDiv.appendChild(topRow);
+
+    var track = document.createElement('div');
+    track.className = 'progress-track';
+    track.innerHTML = '<div class="progress-fill" style="width:'+pv+'%;background:'+CHART_COLORS[i%CHART_COLORS.length]+'"></div>';
+    contentDiv.appendChild(track);
+
+    var metaDiv = document.createElement('div');
+    metaDiv.style.cssText = 'display:flex;gap:10px;margin-top:2px;font-size:10px;color:#9CA3AF';
+    metaDiv.innerHTML = '<span>'+p.count+'件 / '+data.totalOrders+'件</span><span>構成比 '+pv.toFixed(1)+'%</span><span>報酬 '+fmt(p.reward)+'</span>';
+    contentDiv.appendChild(metaDiv);
+
+    row.appendChild(numSpan);
+    row.appendChild(contentDiv);
+    container.appendChild(row);
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -821,13 +1030,13 @@ function renderPartners(tc, A) {
   kg.className = 'kpi-grid';
   kg.style.marginBottom = '16px';
   var top10sum = A.activePartners.slice(0,10).reduce(function(s,p){return s+p.amount},0);
-  kg.appendChild(kpiCard('アクティブ記載人数', A.aCount+'人', '総登録 '+A.pCount+'人'));
+  kg.appendChild(kpiCard('アクティブ記載人数', A.aCount+'人', '売上1件以上 / 総登録 '+A.pCount+'人'));
   kg.appendChild(kpiCard('Top10 売上合計', fmt(top10sum), '全体の'+(top10sum/A.totalAmount*100).toFixed(1)+'%', true));
   kg.appendChild(kpiCard('パートナー平均売上', fmt(Math.round(A.totalAmount/Math.max(A.aCount,1))), 'アクティブのみ'));
   frag.appendChild(kg);
 
   // Top10 table
-  var ts = makeSection('Top 10 インフルエンサー売上ランキング', null, true);
+  var ts = makeSection('Top 10 インフルエンサー売上ランキング', null);
   var tableWrap = document.createElement('div');
   tableWrap.style.overflowX = 'auto';
   var thtml = '<table class="data-table"><thead><tr>' +
@@ -852,7 +1061,7 @@ function renderPartners(tc, A) {
   frag.appendChild(ts.wrap);
 
   // Distribution
-  var ds = makeSection('パートナー売上分布', 'accent', false);
+  var ds = makeSection('パートナー売上分布', 'accent');
   var dg = document.createElement('div');
   dg.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px';
   [{label:'10万円以上', fn:function(p){return p.amount>=100000}, color:'var(--primary)'},
@@ -879,21 +1088,26 @@ function renderProducts(tc, A) {
   var frag = document.createDocumentFragment();
 
   // Line chart section
-  var ls = makeSection('商品別 売上日次推移', null, true);
+  var ls = makeSection('商品別 売上日次推移', null);
 
   // select
   var select = document.createElement('select');
   select.className = 'select';
   select.innerHTML = '<option value="all">全商品</option>';
   A.products.forEach(function(p) {
-    select.innerHTML += '<option value="'+p.id+'">'+p.name+'</option>';
+    var opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = truncName(p.name);
+    if (p.name.length > 40) opt.title = '…' + p.name.slice(40);
+    select.appendChild(opt);
   });
   select.value = state.selectedProduct;
   select.onchange = function() {
     state.selectedProduct = this.value;
     drawProductLine();
+    refreshProductsTable(A);
   };
-  // insert select before chevron in the header's right div
+  // insert select into header's right div
   ls.rightDiv.insertBefore(select, ls.rightDiv.firstChild);
 
   var lineDiv = document.createElement('div');
@@ -904,36 +1118,69 @@ function renderProducts(tc, A) {
   frag.appendChild(ls.wrap);
 
   // Product table
-  var ps = makeSection('商品別 アフィリエイト経由売上', 'accent', true);
+  var ps = makeSection('商品別 アフィリエイト経由売上', 'accent');
   var tw = document.createElement('div');
   tw.style.overflowX = 'auto';
-  var thtml = '<table class="data-table"><thead><tr>' +
+  var table = document.createElement('table');
+  table.className = 'data-table';
+  table.innerHTML = '<thead><tr>' +
     '<th class="text-left">商品</th><th class="text-right">売上金額</th><th class="text-right">件数</th>' +
-    '<th class="text-right">平均単価</th><th class="text-right">構成比</th><th class="text-right">成果報酬</th></tr></thead><tbody>';
+    '<th class="text-right">平均単価</th><th class="text-right">構成比</th><th class="text-right">成果報酬</th></tr></thead>';
+  var tbody = document.createElement('tbody');
+  tbody.id = 'productsTableBody';
   A.products.forEach(function(p, idx) {
-    thtml += '<tr><td style="border-radius:8px 0 0 8px"><div style="display:flex;align-items:center;gap:8px">' +
-      '<span class="dot" style="background:'+CHART_COLORS[idx%CHART_COLORS.length]+'"></span>' +
-      '<span style="font-weight:600;font-size:12px">'+p.name+'</span></div></td>' +
+    var isSelected = state.selectedProduct === p.id;
+    var tr = document.createElement('tr');
+    tr.style.cssText = 'cursor:pointer;transition:background .15s' + (isSelected ? ';background:var(--primary-light)' : '');
+    tr.addEventListener('mouseenter', function() { if (!isSelected) tr.style.background='var(--g100)'; });
+    tr.addEventListener('mouseleave', function() { if (!isSelected) tr.style.background=''; });
+    tr.addEventListener('click', (function(pid) {
+      return function() {
+        state.selectedProduct = state.selectedProduct === pid ? 'all' : pid;
+        drawProductLine();
+        refreshProductsTable(A);
+        var chartEl = document.getElementById('lineChartContainer');
+        if (chartEl) chartEl.scrollIntoView({behavior:'smooth', block:'center'});
+      };
+    })(p.id));
+
+    var tdName = document.createElement('td');
+    tdName.style.borderRadius = '8px 0 0 8px';
+    var nameWrap = document.createElement('div');
+    nameWrap.style.cssText = 'display:flex;align-items:center;gap:8px';
+    nameWrap.innerHTML = '<span class="dot" style="background:'+CHART_COLORS[idx%CHART_COLORS.length]+'"></span>';
+    var nameSpan = document.createElement('span');
+    nameSpan.style.cssText = 'font-weight:' + (isSelected ? '600' : '400') + ';font-size:12px;color:' + (isSelected ? 'var(--primary)' : 'var(--g700)');
+    nameSpan.textContent = truncName(p.name);
+    bindNameTooltip(nameSpan, p.name);
+    nameWrap.appendChild(nameSpan);
+    tdName.appendChild(nameWrap);
+    tr.appendChild(tdName);
+    tr.insertAdjacentHTML('beforeend',
       '<td class="text-right font-bold color-primary">'+fmt(p.amount)+'</td>' +
       '<td class="text-right">'+p.count+'件</td>' +
       '<td class="text-right">'+fmt(Math.round(p.amount/p.count))+'</td>' +
       '<td class="text-right">'+(p.amount/A.totalAmount*100).toFixed(1)+'%</td>' +
-      '<td class="text-right" style="border-radius:0 8px 8px 0">'+fmt(p.reward)+'</td></tr>';
+      '<td class="text-right" style="border-radius:0 8px 8px 0">'+fmt(p.reward)+'</td>');
+    tbody.appendChild(tr);
   });
-  thtml += '<tr class="total-row"><td style="border-radius:8px 0 0 8px">合計</td>' +
+  var totalTr = document.createElement('tr');
+  totalTr.className = 'total-row';
+  totalTr.innerHTML = '<td style="border-radius:8px 0 0 8px">合計</td>' +
     '<td class="text-right color-primary">'+fmt(A.totalAmount)+'</td>' +
     '<td class="text-right">'+A.totalOrders+'件</td>' +
     '<td class="text-right">'+fmt(Math.round(A.totalAmount/A.totalOrders))+'</td>' +
     '<td class="text-right">100%</td>' +
-    '<td class="text-right" style="border-radius:0 8px 8px 0">'+fmt(A.totalRewards)+'</td></tr>';
-  thtml += '</tbody></table>';
-  tw.innerHTML = thtml;
+    '<td class="text-right" style="border-radius:0 8px 8px 0">'+fmt(A.totalRewards)+'</td>';
+  tbody.appendChild(totalTr);
+  table.appendChild(tbody);
+  tw.appendChild(table);
   ps.body.appendChild(tw);
   ps.wrap.style.marginBottom = '16px';
   frag.appendChild(ps.wrap);
 
   // Insights
-  var ins = makeSection('販促示唆・インサイト', 'warn', false);
+  var ins = makeSection('販促示唆・インサイト', 'warn');
   var insights = [];
   if (A.products.length>0) {
     insights.push({title:A.products[0].name+' が売上1位', body:'構成比'+(A.products[0].amount/A.totalAmount*100).toFixed(1)+'%。アフィリエイターが最も紹介しやすい商品です。外部メディア（SNS広告・インフルエンサーPR）でもこの商品を軸に展開すると効率的です。'});
@@ -981,6 +1228,69 @@ function drawProductLine() {
     id:'prodLine',
     color: CHART_COLORS[Math.max(0,colorIdx) % CHART_COLORS.length]
   });
+
+  // セレクトボックスを同期
+  var sel = container.parentElement.parentElement.querySelector('select');
+  if (sel) sel.value = sp;
+}
+
+// テーブル行の選択状態を再描画
+function refreshProductsTable(A) {
+  var oldTbody = document.getElementById('productsTableBody');
+  if (!oldTbody) return;
+  var table = oldTbody.parentElement;
+  var newTbody = document.createElement('tbody');
+  newTbody.id = 'productsTableBody';
+
+  A.products.forEach(function(p, idx) {
+    var isSelected = state.selectedProduct === p.id;
+    var tr = document.createElement('tr');
+    tr.style.cssText = 'cursor:pointer;transition:background .15s' + (isSelected ? ';background:var(--primary-light)' : '');
+    tr.addEventListener('mouseenter', function() { if (state.selectedProduct !== p.id) tr.style.background='var(--g100)'; });
+    tr.addEventListener('mouseleave', function() { if (state.selectedProduct !== p.id) tr.style.background=''; });
+    tr.addEventListener('click', (function(pid) {
+      return function() {
+        state.selectedProduct = state.selectedProduct === pid ? 'all' : pid;
+        drawProductLine();
+        refreshProductsTable(A);
+        var chartEl = document.getElementById('lineChartContainer');
+        if (chartEl) chartEl.scrollIntoView({behavior:'smooth', block:'center'});
+      };
+    })(p.id));
+
+    var tdName = document.createElement('td');
+    tdName.style.borderRadius = '8px 0 0 8px';
+    var nameWrap = document.createElement('div');
+    nameWrap.style.cssText = 'display:flex;align-items:center;gap:8px';
+    nameWrap.innerHTML = '<span class="dot" style="background:'+CHART_COLORS[idx%CHART_COLORS.length]+'"></span>';
+    var nameSpan = document.createElement('span');
+    nameSpan.style.cssText = 'font-weight:' + (isSelected ? '600' : '400') + ';font-size:12px;color:' + (isSelected ? 'var(--primary)' : 'var(--g700)');
+    nameSpan.textContent = truncName(p.name);
+    bindNameTooltip(nameSpan, p.name);
+    nameWrap.appendChild(nameSpan);
+    tdName.appendChild(nameWrap);
+    tr.appendChild(tdName);
+    tr.insertAdjacentHTML('beforeend',
+      '<td class="text-right font-bold color-primary">'+fmt(p.amount)+'</td>' +
+      '<td class="text-right">'+p.count+'件</td>' +
+      '<td class="text-right">'+fmt(Math.round(p.amount/p.count))+'</td>' +
+      '<td class="text-right">'+(p.amount/A.totalAmount*100).toFixed(1)+'%</td>' +
+      '<td class="text-right" style="border-radius:0 8px 8px 0">'+fmt(p.reward)+'</td>');
+    newTbody.appendChild(tr);
+  });
+
+  // 合計行
+  var totalTr = document.createElement('tr');
+  totalTr.className = 'total-row';
+  totalTr.innerHTML = '<td style="border-radius:8px 0 0 8px">合計</td>' +
+    '<td class="text-right color-primary">'+fmt(A.totalAmount)+'</td>' +
+    '<td class="text-right">'+A.totalOrders+'件</td>' +
+    '<td class="text-right">'+fmt(Math.round(A.totalAmount/A.totalOrders))+'</td>' +
+    '<td class="text-right">100%</td>' +
+    '<td class="text-right" style="border-radius:0 8px 8px 0">'+fmt(A.totalRewards)+'</td>';
+  newTbody.appendChild(totalTr);
+
+  table.replaceChild(newTbody, oldTbody);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1017,7 +1327,7 @@ function handleFiles(files) {
 }
 
 function resetAll() {
-  state = {orders:[], partners:[], fileNames:[], encoding:state.encoding, activeTab:'overview', selectedProduct:'all', analysis:null};
+  state = {orders:[], partners:[], fileNames:[], encoding:state.encoding, activeTab:'overview', selectedProduct:'all', selectedMonth:'all', dailyProduct:'all', analysis:null};
   render();
 }
 
